@@ -22,6 +22,7 @@ from .udev import (
     SigrokUSBSerialDevice,
     USBAudioInput,
     USBDebugger,
+    USBLauterbachDebugger,
     USBFlashableDevice,
     USBMassStorage,
     USBNetworkInterface,
