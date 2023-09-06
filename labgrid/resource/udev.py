@@ -714,8 +714,11 @@ class USBDebugger(USBResource):
 @target_factory.reg_resource
 @attr.s(eq=False)
 class USBLauterbachDebugger(USBResource):
+    """The USBLauterbachDebugger describes an attached Lauterbach Debugger connected via USB.
+    """
     def filter_match(self, device):
         # udevadm info --attribute-walk /dev/lauterbach/trace32/*
+        # udevadm info --attribute-walk /dev/lauterbach/by-id/*
         match = (device.properties.get('ID_VENDOR_ID'), device.properties.get('ID_MODEL_ID'))
 
         if match not in [("0897", "0002"),  # PowerDebug USB1.0/USB2.0/Ethernet/II + PowerTrace
