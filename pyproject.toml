@@ -95,6 +95,9 @@ dev = [
     # labgrid[kasa]
     "python-kasa>=0.4.0",
 
+    # labgrid[lauterbach]
+    "lauterbach-trace32-pystart>=0.1.7",
+
     # labgrid[modbus]
     "pyModbusTCP>=0.1.10",
 
