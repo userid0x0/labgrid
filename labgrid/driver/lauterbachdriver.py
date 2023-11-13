@@ -9,8 +9,10 @@ import attr
 
 from .exception import ExecutionError
 from ..factory import target_factory
+from ..protocol import BootstrapProtocol
 from ..resource.lauterbach import NetworkLauterbachDebugger, RemoteUSBLauterbachDebugger
 from ..resource.udev import USBLauterbachDebugger
+from ..step import step
 from ..util.agentwrapper import AgentWrapper
 from ..util.helper import get_uname_machine, processwrapper
 from ..util.managedfile import ManagedFile
@@ -21,7 +23,7 @@ from .common import Driver
 
 @target_factory.reg_driver
 @attr.s(eq=False)
-class LauterbachDriver(Driver):
+class LauterbachDriver(Driver, BootstrapProtocol):
     """
     Args:
         t32_sys (str): base folder of the TRACE32 installation (default ENV['T32SYS'] or ~/t32 or /opt/t32)
@@ -31,6 +33,8 @@ class LauterbachDriver(Driver):
                        first parameter is the used labgrid command e.g. `debugger, write-image`
         script_args_debug (str, list):
                        parameters passed to `.cmm` script with labgrid command `debugger`
+        script_args_bootstrap  (str, list):
+                        parameters passed to `.cmm` script with labgrid command `bootstrap`
     """
     bindings = {
         "interface": {
@@ -49,6 +53,10 @@ class LauterbachDriver(Driver):
         validator=attr.validators.optional(attr.validators.instance_of(str))
         )
     script_args_debug = attr.ib(
+        default=attr.Factory(list),
+        validator=attr.validators.optional(attr.validators.instance_of((str,list)))
+        )
+    script_args_bootstrap = attr.ib(
         default=attr.Factory(list),
         validator=attr.validators.optional(attr.validators.instance_of((str,list)))
         )
@@ -194,6 +202,30 @@ class LauterbachDriver(Driver):
     @Driver.check_active
     def start(self):
         pv = self._get_powerview_handle("DEBUGGER", self.script_args_debug)
+
+        self.logger.debug(pv.get_configuration_string())
+        pv.start()
+        pv.wait()
+
+        return
+
+    # Bootstrap protocol
+    @Driver.check_active
+    @step(args=['filename'])
+    def load(self, filename=None):
+        if self.script is None:
+            raise ExecutionError("Mandatory TRACE32 configuration `script` is missing")
+
+        if filename is None and self.image is not None:
+            filename = self.target.env.config.get_image_path(self.image)
+        mf = ManagedFile(filename, self.interface)
+        mf.sync_to_resource()
+
+        script_args = [f"FILE={filename}"]
+        script_args += self.script_args_bootstrap
+
+        pv = self._get_powerview_handle("BOOTSTRAP", script_args)
+        pv.screen = False
 
         self.logger.debug(pv.get_configuration_string())
         pv.start()
