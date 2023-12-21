@@ -145,6 +145,7 @@ class LauterbachDriver(Driver, BootstrapProtocol):
             agent = AgentWrapper(self.interface.host)
             hosttools = agent.load('hosttools')
             remoteArchitecture = hosttools.get_uname_machine()
+            self.logger.debug("Detected remote architecture: %s", remoteArchitecture)
 
             t32tcpusb = os.path.join(self.t32sys, self._pathmap.get(remoteArchitecture), "t32tcpusb")
             self.logger.debug("Using remote t32tcpusb: %s", t32tcpusb)
