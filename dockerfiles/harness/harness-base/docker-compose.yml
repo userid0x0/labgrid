@@ -1,0 +1,260 @@
+x-common-environment: &common-environment
+  LG_COORDINATOR: "coordinator.internal:20408"
+  PUBLIC_KEY: |
+    ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKctkMvOgXIKSKxZrL4rpV1rxGTgF3Hr7ZDgyXgyQXCh dut@host
+  PRIVATE_KEY: |
+    -----BEGIN OPENSSH PRIVATE KEY-----
+    b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW
+    QyNTUxOQAAACCnLZDLzoFyCkisWay+K6Vda8Rk4Bdx6+2Q4Ml4MkFwoQAAAKAVkiHjFZIh
+    4wAAAAtzc2gtZWQyNTUxOQAAACCnLZDLzoFyCkisWay+K6Vda8Rk4Bdx6+2Q4Ml4MkFwoQ
+    AAAEAl1kB5798Nt3wHxKbPuwULKrExKynIzxaOAtOLvs3wuKctkMvOgXIKSKxZrL4rpV1r
+    xGTgF3Hr7ZDgyXgyQXChAAAAFmFtZXJrbGVAYW1lcGMzLmx0Yi5sYW4BAgMEBQYH
+    -----END OPENSSH PRIVATE KEY-----
+  HOST_PUBLIC_KEY: |
+    ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKoAnzVwcK58fMkr/FwujeUeRgGNywZfbfJsFx1GRer6
+  HOST_PRIVATE_KEY: |
+    -----BEGIN OPENSSH PRIVATE KEY-----
+    b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW
+    QyNTUxOQAAACCqAJ81cHCufHzJK/xcLo3lHkYBjcsGX23ybBcdRkXq+gAAAJjlYbFW5WGx
+    VgAAAAtzc2gtZWQyNTUxOQAAACCqAJ81cHCufHzJK/xcLo3lHkYBjcsGX23ybBcdRkXq+g
+    AAAEAqLCgRN1wuBNEkOBM7F5TMkh2GdFrLlZJ9cspDWB7+XqoAnzVwcK58fMkr/FwujeUe
+    RgGNywZfbfJsFx1GRer6AAAAEXJvb3RAZHV0LmludGVybmFsAQIDBA==
+    -----END OPENSSH PRIVATE KEY-----
+  COMMON_SUBROUTINES: |
+    getLgCoordinatorHostname() {
+      local hostAndPort
+      hostAndPort=$${LG_COORDINATOR:-localhost:20408}
+      echo "$${hostAndPort%:*}"
+    }
+
+    getLgCoordinatorPort() {
+      local hostAndPort
+      hostAndPort=$${LG_COORDINATOR:-localhost:20408}
+      echo "$${hostAndPort##*:}"
+    }
+
+    checkIfCoordinatorIsReachable() {
+      echo > /dev/tcp/$$(getLgCoordinatorHostname)/$$(getLgCoordinatorPort);
+    }
+
+    loopUntilCoordinatorIsReachable() {
+      until checkIfCoordinatorIsReachable; do
+        sleep 1
+      done
+      return 0
+    }
+  COORDINATOR_PLACE_YAML: |
+    example-place:
+      acquired: null
+      acquired_resources: []
+      aliases: []
+      allowed: []
+      changed: 1575386386.3115733
+      comment: ''
+      created: 1575376664.3120446
+      matches:
+      - cls: '*'
+        exporter: '*'
+        group: example-group
+        name: null
+        rename: null
+      reservation: null
+      tags: {}
+  EXPORTER_YAML: |
+    example-group:
+      location: docker-exporter
+      NetworkService:
+        address: dut.internal
+        port: 2222
+        username: dut
+    
+services:
+  client:
+    image: "${IMAGE_PREFIX:-docker.io/labgrid/}client"
+    build: &dockerbuild
+      context: ${LABGRID_REPO:-../..}
+      dockerfile: dockerfiles/Dockerfile
+      target: labgrid-client
+    environment:
+      <<: *common-environment
+    tty: true
+    stdin_open: true
+    tmpfs: "/tmp"
+    # Wait until coordinator is up
+    # Use labgrid-client r to ensure the exporter has populated the resource list in the coordinator
+    # Use sleep to fix the problem that sometimes the coordinator is not ready even though the service is up
+    entrypoint:
+      - "/bin/bash"
+      - "-c"
+      - |
+        set -ex
+        eval "$${COMMON_SUBROUTINES}"
+        
+        loopUntilCoordinatorIsReachable
+        
+        sleep 1
+
+        while [ -z $(/usr/local/bin/labgrid-client r) ]; do
+          echo 'client: Wait one sec for resources'
+          sleep 1
+        done
+
+        echo "$${PRIVATE_KEY}" \
+          > "/etc/ssh/id_ed25519"
+        chmod 600 /etc/ssh/id_ed25519
+        echo -e "Host *\n  IdentityFile /etc/ssh/id_ed25519" \
+          > "/etc/ssh/ssh_config.d/harness-identity.conf"
+        echo -e "Host *\n  Port 2222" \
+          > "/etc/ssh/ssh_config.d/harness-port.conf"
+        echo -e "Host bastion bastion.internal\n  User bastion" \
+          > "/etc/ssh/ssh_config.d/harness-bastion-user.conf"
+        for i in dut dut.internal bastion bastion.internal; do
+          echo "[$${i}]:2222 $${HOST_PUBLIC_KEY}" \
+            >> "/etc/ssh/ssh_known_hosts"
+        done
+        
+        if [ -f /test/client/test.sh ]; then
+          exec bash /test/client/test.sh
+        fi
+
+        echo "no '/test/client/test.sh' found - try to open interactive shell"
+        exec bash -l
+    command: /bin/false
+    depends_on:
+      bastion:
+        condition: service_started
+      coordinator:
+        condition: service_started # alternative: service_healthy
+      exporter:
+        condition: service_started
+      dut:
+        condition: service_started
+    networks:
+      default:
+      bastion:
+  
+  bastion:
+    image: lscr.io/linuxserver/openssh-server:10.3_p1-r2-ls243
+    hostname: bastion
+    environment:
+      <<: *common-environment
+      USER_NAME: bastion
+    entrypoint: &openssh-entrypoint
+      - "bash"
+      - "-c"
+      - |
+        mkdir -p /config/{ssh_host_keys,sshd/sshd_config.d}
+        echo "$${HOST_PRIVATE_KEY}" \
+          > "/config/ssh_host_keys/ssh_host_ed25519_key"
+        echo "$${HOST_PUBLIC_KEY} root@$$(hostname)" \
+          > "/config/ssh_host_keys/ssh_host_ed25519_key.pub"
+        chmod 600 /config/ssh_host_keys/ssh_host_ed25519_key*
+        echo "AllowTcpForwarding yes" \
+          > "/config/sshd/sshd_config.d/harness-allow-tcpforward.conf"
+        exec /init
+    networks:
+      default:
+        aliases:
+          - bastion.internal
+      bastion:
+        aliases:
+          - bastion.internal
+
+  coordinator:
+    image: "${IMAGE_PREFIX:-docker.io/labgrid/}coordinator"
+    build:
+      <<: *dockerbuild
+      target: labgrid-coordinator
+    environment:
+      <<: *common-environment
+    tty: true
+    entrypoint:
+      - "bash"
+      - "-c"
+      - |
+        set -e
+        if [ -f "/test/coordinator/places.yaml" ]; then
+          cp -v "/test/coordinator/places.yaml" "/opt/coordinator/places.yaml"
+        else
+          echo "coordinator: use COORDINATOR_PLACE_YAML environment"
+          echo "$${COORDINATOR_PLACE_YAML}" \
+            > "/opt/coordinator/places.yaml"
+        fi
+        exec /usr/local/bin/labgrid-coordinator
+    networks:
+      default:
+        aliases:
+          - coordinator.internal
+    healthcheck:
+      test: 
+        - "CMD"
+        - "bash"
+        - "-c"
+        - |
+          eval "$${COMMON_SUBROUTINES}"
+          checkIfCoordinatorIsReachable
+      interval: 15s    
+
+  coordinator-statsd:
+    image: "${IMAGE_PREFIX:-docker.io/labgrid/}coordinator-statsd"
+    environment:
+      <<: *common-environment
+    depends_on:
+      coordinator:
+        condition: service_started # alternative: service_healthy
+    networks:
+      default:
+
+  exporter:
+    image: "${IMAGE_PREFIX:-docker.io/labgrid/}exporter"
+    build:
+      <<: *dockerbuild
+      target: labgrid-exporter
+    hostname: exporter.internal
+    environment:
+      <<: *common-environment
+    volumes:
+      - "/run/udev:/run/udev:ro"
+    depends_on:
+      coordinator:
+        condition: service_started # alternative: service_healthy
+    tty: true
+    networks:
+      default:
+        aliases:
+          - exporter.internal
+    stdin_open: true
+    entrypoint:
+      - "/bin/bash"
+      - "-c"
+      - |
+        set -e
+        eval "$${COMMON_SUBROUTINES}"
+        
+        loopUntilCoordinatorIsReachable
+
+        if [ -f /test/exporter/exporter.yaml ]; then
+          echo "exporter: use exporter.yaml from test"
+          exec labgrid-exporter "/test/exporter/exporter.yaml"
+        else
+          echo "exporter: use EXPORTER_YAML environment"
+          echo "$${EXPORTER_YAML}" \
+            > "/tmp/exporter.yaml"
+          exec labgrid-exporter "/tmp/exporter.yaml"
+        fi
+
+  dut:
+    image: lscr.io/linuxserver/openssh-server:10.3_p1-r2-ls243
+    hostname: dut.internal
+    environment:
+      <<: *common-environment
+      USER_NAME: dut
+    entrypoint: *openssh-entrypoint
+    networks:
+      default:
+        aliases:
+          - dut.internal
+  
+networks:
+  default:
+  bastion:
