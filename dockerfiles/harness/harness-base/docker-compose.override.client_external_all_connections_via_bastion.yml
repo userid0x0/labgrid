@@ -1,0 +1,13 @@
+# WiP
+# set LG_PROXY to bastion.internal
+# bastion & client are within the same network
+# TBD:
+# - exporter needs a ssh-server in this scenario
+# - ssh config needs to be patched (`ProxyJump bastion.internal`)
+
+services:
+  client:
+    environment:
+      LG_PROXY: bastion.internal
+    networks:
+      default: !reset null
