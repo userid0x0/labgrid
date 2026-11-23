@@ -1,0 +1,32 @@
+# docker compose \
+#   -f docker-compose.yml \
+#   -f docker-compose.override.wayland_via_selkies.yml \
+#   run -P client
+#
+# open your webbrowser: http://localhost:3000
+# run your code within the client that needs a display
+# (may require lots of dependency installs e.g. qt/...)
+
+services:
+  client:
+    environment:
+      WAYLAND_DISPLAY: "wayland-0"
+      XDG_RUNTIME_DIR: "/selkies/.XDG"
+    volumes:
+      - "selkies:/selkies"
+    depends_on:
+      selkies:
+        condition: service_started
+
+  selkies:
+    image: docker.io/lsiobase/selkies:ubunturesolute
+    ports:
+      - ${SELKIES_BIND:-127.0.0.1:3000}:3000
+    environment:
+      START_DOCKER: false
+      PIXELFLUX_WAYLAND: true
+    volumes:
+      - "selkies:/config"
+
+volumes:
+  selkies:
