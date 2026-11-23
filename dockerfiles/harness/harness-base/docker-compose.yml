@@ -72,7 +72,7 @@ services:
   client:
     image: "${IMAGE_PREFIX:-docker.io/labgrid/}client"
     build: &dockerbuild
-      context: ${LABGRID_REPO:-../..}
+      context: ${LABGRID_REPO:-../../..}
       dockerfile: dockerfiles/Dockerfile
       target: labgrid-client
     environment:
