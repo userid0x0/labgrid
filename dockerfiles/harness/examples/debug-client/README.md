@@ -1,10 +1,11 @@
-#
+# Debug `labgrid-client` using `debugpy`
 ```bash
 docker compose \
    -f ../../harness-base/docker-compose.yml \
    -f docker-compose.override.client_debugpy.yml \
    run --service-ports client
 
+# within the container
 cd /labgrid
 pip install --editable .
 pip install debugpy
@@ -12,7 +13,7 @@ debugpy --listen 0.0.0.0:5678 --wait-for-client $(which labgrid-client) r
 
 ```
 
-### `launch.json`
+### VsCode `launch.json`
 ```json
 {
     "version": "0.2.0",
